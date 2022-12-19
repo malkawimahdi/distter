@@ -1,0 +1,242 @@
+Network Working Group                                       M. Nyx Brain
+Request for Comments: TBD                     City, University of London
+                                                              March 2022
+
+               Distter : A Distributed Social Network
+
+Abstract
+
+   Distter is a peer-to-peer distributed social network where nodes
+   store and exchange posts.  Every node can store any number of
+   posts.  There is no need for a centralised solver.  As long as at
+   least one node on the network stores a copy of a post, it should be
+   accessible.  Posts are immutable and are identified by a cryptographic
+   hash so it is easy to find duplicates and reply to previous posts.
+   All node may create posts.
+
+   Nodes may join or leave the network at any time and can connect to
+   any other node.  Connections are using TCP.  Nodes can either be a
+   TCP client or a TCP server.  Once they have connected on the
+   transport level, the application is peer-to-peer and there is no
+   difference between client and server.
+   
+   This document describes the format of the posts and the protocol
+   between nodes.
+
+
+1. Terminology
+
+   The terminology of RFC 2119 is used : MUST, SHOULD and MAY.
+
+   The following terms will be used in this document:
+
+   Peer : One of the two participants in the protocol.
+   
+   Time : Time is given as an integer which is the number of seconds
+   since the start of the UNIX Epoch.
+
+   String : One or more bytes.  Unless otherwise specified this is
+   should be interpreted as text encoded using UTF-8.
+   
+   Line : A line is a string where the last character that is new line
+   character (\n).
+   
+   Parts : If a line is described as having several parts then is a
+   single space character between the parts.
+
+
+2. Transport Layer
+
+   Distter runs over TCP.  Implementations MAY be a TCP client or TCP
+   server or both. Once the connection is established, it does not
+   matter which is which.  Implementations SHOULD use TCP port 20111.
+
+
+3. Post Format
+
+   The main purpose of Distter is to store and distribute posts.
+
+   Each post consists of four or more lines.  These lines are
+   interpreted as headers until the Contents header has been found.
+   All lines after that are interpreted as the body of the post.
+   Each header may not appear more than once in a post.
+
+   The following headers MUST appear in the post:
+
+   Post-id: SHA-256 <hash>
+   This MUST be the first header.  The hash MUST be the SHA-256 hash of
+   the rest of the headers and the body of the post.
+
+   Created: <time>
+   The time is when the post was created.
+
+   Author: <person>
+   This identifies who created the post.  person MAY be an e-mail address.
+
+   Contents: <number>
+   This MUST be the last header.  The number gives how many lines of
+   the body follow.
+   
+   Any other headers MAY appear.
+
+
+3.1. Example Post
+
+   This is an example of a correctly formatted post:
+
+Post-id: SHA-256 bd4fd422f16f44ec6262e79f12c6269afab4ccdd48cd9ce8a75a572e2fddafe3
+Created: 1648000000
+Author: martin.brain@city.ac.uk
+#distter
+#IN2011
+#2022
+Contents: 2
+Hello Everyone!
+Welcome to Distter!
+
+
+3.2. Storage
+
+   Implementations SHOULD store any posts that they can and SHOULD
+   make them available to others.  They SHOULD store them while the
+   program is running and MAY store them longer for example using
+   files or a database.  Implementations or the people operating them
+   MAY choose to delete posts.
+   
+   Implementations MUST store the initial example post given above and
+   MUST give it when requested.
+
+
+4. Requests and Responses
+
+   Nodes in Distter communicate to via a number of requests each of
+   which may have a response.  Either peer MAY make as many requests
+   as they like.  Both peers MUST respond to all requests they receive
+   (if there is a response specified).  Both peers MUST respond to
+   requests the other peer makes even if they are waiting for a
+   response.  This avoid deadlocking if both peers make a request
+   simultaneously.
+   
+   If a peer receives an invalid, unknown, incorrect, corrupt or out
+   of order request it SHOULD end the interaction with that peer using
+   a GOODBYE! request and close the socket.
+
+
+4.1. HELLO?
+
+   To make sure that the other peer is using the same version of the
+   protocol, a HELLO? request is sent.  Both peers MUST send a
+   protocol request as the first request they send.  A protocol
+   request is a single line with three parts:
+
+   HELLO? DISTTER/1.0 <identifier>
+
+   identifier is a string that identifies the peer.  Implementations
+   SHOULD use something that allows other users to identify the owner
+   of the system.
+
+   There is no response to a protocol request.
+
+
+4.2. WHEN?
+
+   To get the latest messages, it is necessary to synchronise the
+   time with other peers.  A WHEN? request is a single line:
+
+   WHEN?
+
+   The response is a single line with two parts:
+
+   NOW <time>
+
+   time is the current time at the peer.  Peers SHOULD make sure
+   their time is accurate.
+
+
+4.3. POSTS?
+
+   This asks a peer for a list of posts which meet several different
+   criteria.  One of the criteria is the time the posts were
+   created.  Only newer posts will be listed.  The other kind of
+   criteria are headers.  The request can give a number of headers
+   and only posts that have all of these headers will be listed.
+   This allows you to search by Author, hashtags, Replies, etc.
+   POSTS? only lists the IDs of the posts, it does not get them.
+    
+   A POSTS request is one or more lines. The first line has three parts:
+
+   POSTS? <since> <headers>
+
+   Here since is any time in the past.  Peers MUST NOT request times
+   that are in the future. headers is an integer which MUST be 0 or more.
+   This gives the number of following lines which contain headers.
+
+   The response is one or more lines.  The first line has two parts:
+
+   OPTIONS <count>
+
+   The responding peer finds every post it has stored with:
+   1. A Created header that is greater than or equal to since.
+   2. All of the headers that are given in the request.
+   count is the number of posts that it has found.  The responding
+   peer then outputs the hash from the Post-id header of each of the
+   posts.
+
+
+4.4. FETCH?
+
+   This gives a way of getting a post from another node.  A fetch
+   request is one line.  It has three parts:
+
+   FETCH? SHA-256 <hash>
+
+   Here hash must be an SHA-256 hash.
+
+   There are two possible responses.  A peer can respond with a
+   single line:
+
+   SORRY
+
+   or it can respond with multiple lines, the first is:
+
+   FOUND
+
+   then it must send the post with the requested post ID.
+
+
+4.5. GOODBYE!
+
+   A goodbye request is a single line which have one or more parts.
+
+   GOODBYE! <message>
+
+   The message MAY say why the peer is disconnecting.
+   There is no response but both peers MUST close the socket.
+
+
+5. Full Example of The Distter Protocol and Format
+
+   This is a full example of two peers communicating using Distter.
+   The writing on the left hand side is what one peer sends and the
+   writing on the right is the other peer.
+
+                                         HELLO? DISTTER/1.0 SarahServer
+HELLO? DISTTER/1.0 MyClient-v0.99
+POSTS? 1647999999 1
+#distter
+                                         OPTIONS 2
+                                         SHA-256 b7e3fd1c7abdcb2ac410d1f3513e5106ee165581e96d2df7f4ca51799b4ffc56
+                                         SHA-256 bd4fd422f16f44ec6262e79f12c6269afab4ccdd48cd9ce8a75a572e2fddafe3
+                                         WHEN?
+NOW 1648000001
+FETCH? SHA-256 b7e3fd1c7abdcb2ac410d1f3513e5106ee165581e96d2df7f4ca51799b4ffc56
+                                         FOUND
+                                         Post-id: SHA-256 b7e3fd1c7abdcb2ac410d1f3513e5106ee165581e96d2df7f4ca51799b4ffc56
+                                         Created: 1648000000
+                                         Author: martin.brain@city.ac.uk
+                                         #distter
+                                         Reply: SHA-256 bd4fd422f16f44ec6262e79f12c6269afab4ccdd48cd9ce8a75a572e2fddafe3
+                                         Contents: 1
+                                         This is how to reply to a post.
+GOODBYE! Thanks :-)
+                                         GOODBYE! You said bye
